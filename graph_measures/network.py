@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from itertools import combinations
-import graph_measures.functions as func
+import graph_measures.corr_functions as func
 
 
 class network:
@@ -99,11 +99,12 @@ class network:
         Calculate the global efficiency of the network
         :return: np.float object
         """
-        inv_shrtpath=self.shortestpath().pow(-1)                    # Takes the inverse of each element of the Dataframe
-        for n in self.nodes: inv_shrtpath.loc[n,n]=0                # Set Diagonal from inf -> 0
+        inv_shrtpath=self.shortestpath()['Distance'].pow(-1)        # Takes the inverse of each element of the Dataframe
+        np.fill_diagonal(inv_shrtpath.to_numpy(), 0)                # Set Diagonal from inf -> 0
         sum_invpath_df=inv_shrtpath.sum(axis=1)                     # Sums Shortest Path Dataframe along axis 1
         avg_invpath=np.divide(sum_invpath_df, len(self.nodes)-1)    # Divide each element in sum array by n-1 regions
-        return pd.Series(np.sum(avg_invpath)/len(self.nodes), index=self.nodes)                  # Calculate sum of the sum array and take the average
+        glob_efficiency= np.sum(avg_invpath) / len(self.nodes)      # Calculate sum of the sum array and take the average
+        return glob_efficiency
 
     def clust_coeff(self):
         """
@@ -167,27 +168,34 @@ class network:
         :return:
         """
         import graph_measures.random_reference as randomnet
-        random_clust_coeff=[]
-        random_char_path=[]
 
-        for i in range(nrandnet):
+        if hqs:
+            tc = np.array(tc)
+            if not tc.any() and self.time_course.any():
+                tc = self.time_course
+            elif not tc.any(): raise ValueError("Timecourse not specified")
 
-            if hqs:
-                if tc: tc=self.time_course
-                assert tc, "Timecourse not specified"
-                random_net=randomnet.hqs_rand(tc)
-            else:
+            random_net = randomnet.hqs_rand(tc)
+            random_clust_coeff = random_net.clust_coeff()['net_cluster']
+            random_char_path = random_net.char_path()['characteristic_path']
+
+        else:
+            if nrandnet < 1: raise ValueError("Minimum one iteration")
+            random_clust_coeff = []
+            random_char_path = []
+            for i in range(nrandnet):
                 random_net=randomnet.rewired_rand(self.adj_mat, niter, seed)
+                print(f'{i+1} random network generated.')
+                random_clust_coeff.append(random_net.clust_coeff()['net_cluster'])
+                random_char_path.append(random_net.char_path()['characteristic_path'])
 
-            random_clust_coeff.append(random_net.clust_coeff()['net_cluster'])
-            random_char_path.append(random_net.char_path()['characteristic_path'])
-
-        random_clust_coeff=np.mean(random_clust_coeff)
-        random_char_path=np.mean(random_char_path)
+                random_clust_coeff=np.mean(random_clust_coeff)
+                random_char_path=np.mean(random_char_path)
 
         sig_num=(self.clust_coeff()['net_cluster']/random_clust_coeff)
         sig_den=(self.char_path()['characteristic_path']/random_char_path)
         sigma=sig_num/sig_den
+
         return sigma
 
 
