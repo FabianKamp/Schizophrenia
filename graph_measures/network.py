@@ -189,8 +189,8 @@ class network:
                 random_clust_coeff.append(random_net.clust_coeff()['net_cluster'])
                 random_char_path.append(random_net.char_path()['characteristic_path'])
 
-                random_clust_coeff=np.mean(random_clust_coeff)
-                random_char_path=np.mean(random_char_path)
+            random_clust_coeff=np.mean(random_clust_coeff)
+            random_char_path=np.mean(random_char_path)
 
         sig_num=(self.clust_coeff()['net_cluster']/random_clust_coeff)
         sig_den=(self.char_path()['characteristic_path']/random_char_path)
