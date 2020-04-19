@@ -34,7 +34,7 @@ class network:
         https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm
         :return Dictionary of two nxn dimensional pd.DataFrames with shortest path / shortest distance between all pairs of nodes in the network
         """
-        inv_adj_mat=self.adj_mat.abs()                                                                                  # Inverts adjacency matrix
+        inv_adj_mat=1/self.adj_mat.abs()                                                                                  # Inverts adjacency matrix
         shortestdist_df=pd.DataFrame(np.zeros(inv_adj_mat.shape), columns=self.nodes, index=self.nodes)                 # Initialize Path matrix and distance matrix
         shortestpath_df=pd.DataFrame(np.empty(inv_adj_mat.shape, dtype=str), columns=self.nodes, index=self.nodes)
 
