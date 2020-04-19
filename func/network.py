@@ -34,36 +34,35 @@ class network:
         https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm
         :return Dictionary of two nxn dimensional pd.DataFrames with shortest path / shortest distance between all pairs of nodes in the network
         """
-        inv_adj_mat=self.adj_mat.abs().pow(-1)                                                                          # Inverts adjacency matrix
+        inv_adj_mat=self.adj_mat.abs()                                                                                  # Inverts adjacency matrix
         shortestdist_df=pd.DataFrame(np.zeros(inv_adj_mat.shape), columns=self.nodes, index=self.nodes)                 # Initialize Path matrix and distance matrix
         shortestpath_df=pd.DataFrame(np.empty(inv_adj_mat.shape, dtype=str), columns=self.nodes, index=self.nodes)
-        counter=0
+
         for n in range(len(self.nodes)):
-            node_set=pd.DataFrame({'Distance': np.full((len(self.nodes)-counter), np.inf),
-                                   'Previous': ['']*(len(self.nodes)-counter), 'Path': ['']*(len(self.nodes)-counter)}, index=self.nodes[n:])
+            node_set=pd.DataFrame({'Distance': np.full((len(self.nodes)), np.inf),
+                                   'Previous': ['']*(len(self.nodes)), 'Path': ['']*(len(self.nodes))}, index=self.nodes)
             node_set.loc[self.nodes[n], 'Distance'] = 0
-            unvisited_nodes=self.nodes[n:]
+            unvisited_nodes=self.nodes.copy()
             while unvisited_nodes != []:
                 current=node_set.loc[unvisited_nodes,'Distance'].idxmin()    # Select node with minimal Distance of the unvisited nodes
                 unvisited_nodes.remove(current)
-                for k in self.nodes[n:]:
+                for k in self.nodes:
                     dist=node_set.loc[current, 'Distance'] + inv_adj_mat.loc[current, k]
                     if node_set.loc[k,'Distance'] > dist:
                         node_set.loc[k,'Distance'] = dist
                         node_set.loc[k,'Previous'] = current
-            shortestdist_df.loc[n:,n]=node_set.loc[:,'Distance']
-            shortestdist_df.loc[n, n:]=node_set.loc[:,'Distance']
+            shortestdist_df.loc[:,n]=node_set.loc[:,'Distance']
+            shortestdist_df.loc[n, :]=node_set.loc[:,'Distance']
             # Create Dataframe with string values for the shortest path between each pair of nodes
-            for k in self.nodes[n:]:
+            for k in self.nodes:
                 path=str(k)
                 current=k
                 while node_set.loc[current, 'Previous'] != '':
                     current=node_set.loc[current, 'Previous']
-                    path=str(current)+'-'+path
+                    path=str(current)+', '+path
                 node_set.loc[k,'Path']=path
-            shortestpath_df.loc[n:,n]=node_set.loc[:,'Path']
-            shortestpath_df.loc[n,n:]=node_set.loc[:,'Path']
-            counter += 1
+            shortestpath_df.loc[:,n]=node_set.loc[:,'Path']
+            shortestpath_df.loc[n,:]=node_set.loc[:,'Path']
         return {'Distance': shortestdist_df, 'Path': shortestpath_df}
 
     def num_triangles(self):
@@ -84,14 +83,19 @@ class network:
             triangles[node]=0.5*np.sum([sum_dict[s] for s in sum_dict if node in s])    # Sum all of the triangles that contain the node
         return triangles
 
-    def char_path(self):
+    def char_path(self, shortest_pathlength=None):
         """
         Calculate the characteristic path length of the network
         :return: Dictionary with average node distance np.array and characteristic path length np.float object
         """
-        sum_shrtpath_df=self.shortestpath()['Distance'].sum(axis=1)             # Sums Shortest Path Dataframe along axis 1
-        avg_shrtpath_node=np.divide(sum_shrtpath_df, len(self.nodes)-1)  # Divide each element in sum array by n-1 regions
-        char_pathlength=np.sum(avg_shrtpath_node)/len(self.nodes)
+        if shortest_pathlength is not None:                                         # Check if shortest_pathlength is defined
+            if not isinstance(shortest_pathlength, (np.ndarray, pd.DataFrame)):
+                raise ValueError('Shortest Pathlength must be numpy.ndarray or pd.DataFrame')
+            sum_shrtpath_df = np.sum(np.asarray(shortest_pathlength), axis=-1)                # Sums Shortest Path Dataframe along axis -1
+        else:
+            sum_shrtpath_df = np.sum(self.shortestpath()['Distance'], axis=-1)              # Sums Shortest Path Dataframe along axis -1
+        avg_shrtpath_node = sum_shrtpath_df / (len(self.nodes)-1)                       # Divide each element in sum array by n-1 regions
+        char_pathlength = np.sum(avg_shrtpath_node) / len(self.nodes)                     #
         return {'node_avg_dist':avg_shrtpath_node, 'characteristic_path': char_pathlength}    # Calculate sum of the sum array and take the average
 
     def glob_efficiency(self):
@@ -188,6 +192,8 @@ class network:
                 print(f'{i+1} random network generated.')
                 random_clust_coeff.append(random_net.clust_coeff()['net_cluster'])
                 random_char_path.append(random_net.char_path()['characteristic_path'])
+                print(f'Random Char Path: {random_char_path}')
+                print(f'Random clust coeff: {random_clust_coeff}')
 
             random_clust_coeff=np.mean(random_clust_coeff)
             random_char_path=np.mean(random_char_path)
