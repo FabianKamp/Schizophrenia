@@ -140,7 +140,7 @@ class network:
     def clust_coeff(self, node_by_node=False, normalize=False):
         """
         Calculate the cluster coefficient of the network
-        :return: Dictionary of network cluster coefficient np.float object and ndim np.array of node cluster coefficients
+        :return: Network cluster coefficient np.float object or ndim np.array of node by node cluster coefficients
         """
         if not isinstance(normalize, bool): raise ValueError('Normalize must be boolean (True/False).')
 
