@@ -13,6 +13,7 @@ class network:
         assert isinstance(Adjacency_Matrix, (pd.DataFrame, np.ndarray)), "Input must be numpy.ndarray or panda.DataFrame"
         self.adj_mat=pd.DataFrame(Adjacency_Matrix)
         self.nodes = list(self.adj_mat.index)
+        self.number_nodes = len(self.nodes)
 
         if tc:
             assert isinstance(tc, np.ndarray), "Timecourse must be np.ndarray"
@@ -26,7 +27,12 @@ class network:
         Calculate the degree of each node in the network.
         :return n dimensional pd.Series with degrees of all nodes in the network
         """
-        return self.adj_mat.sum(axis=1)-1
+        diag = np.diagonal(np.array(self.adj_mat))
+        if not np.all(np.isclose(diag, 0)):             # Check if the diagonal is close to zero
+            raise Exception('The diagonal elements of adjacency matrix must be close to zero')
+
+        degree = self.adj_mat.sum(axis=1)               # Calculate degree and return as pd.Series
+        return degree
 
     def shortestpath(self):
         """
@@ -34,25 +40,27 @@ class network:
         https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm
         :return Dictionary of two nxn dimensional pd.DataFrames with shortest path / shortest distance between all pairs of nodes in the network
         """
-        inv_adj_mat=1/self.adj_mat.abs()                                                                                  # Inverts adjacency matrix
-        shortestdist_df=pd.DataFrame(np.zeros(inv_adj_mat.shape), columns=self.nodes, index=self.nodes)                 # Initialize Path matrix and distance matrix
-        shortestpath_df=pd.DataFrame(np.empty(inv_adj_mat.shape, dtype=str), columns=self.nodes, index=self.nodes)
+        adj_mat = self.adj_mat
+        if not np.all(adj_mat>=0): raise ValueError('Adjancency matrix elements must be positiv.')
+        shortestdist_df=pd.DataFrame(np.zeros(adj_mat.shape), columns=self.nodes, index=self.nodes)                     # Initialize Path matrix and distance matrix
+        shortestpath_df=pd.DataFrame(np.empty(adj_mat.shape, dtype=str), columns=self.nodes, index=self.nodes)
 
-        for n in range(len(self.nodes)):
-            node_set=pd.DataFrame({'Distance': np.full((len(self.nodes)), np.inf),
-                                   'Previous': ['']*(len(self.nodes)), 'Path': ['']*(len(self.nodes))}, index=self.nodes)
+        for n in range(self.number_nodes):
+            node_set=pd.DataFrame({'Distance': np.full((self.number_nodes), np.inf),
+                                   'Previous': ['']*(self.number_nodes), 'Path': ['']*(self.number_nodes)}, index=self.nodes)
             node_set.loc[self.nodes[n], 'Distance'] = 0
             unvisited_nodes=self.nodes.copy()
             while unvisited_nodes != []:
                 current=node_set.loc[unvisited_nodes,'Distance'].idxmin()    # Select node with minimal Distance of the unvisited nodes
                 unvisited_nodes.remove(current)
                 for k in self.nodes:
-                    dist=node_set.loc[current, 'Distance'] + inv_adj_mat.loc[current, k]
+                    dist=node_set.loc[current, 'Distance'] + adj_mat.loc[current, k]
                     if node_set.loc[k,'Distance'] > dist:
                         node_set.loc[k,'Distance'] = dist
                         node_set.loc[k,'Previous'] = current
             shortestdist_df.loc[:,n]=node_set.loc[:,'Distance']
             shortestdist_df.loc[n, :]=node_set.loc[:,'Distance']
+
             # Create Dataframe with string values for the shortest path between each pair of nodes
             for k in self.nodes:
                 path=str(k)
@@ -63,65 +71,83 @@ class network:
                 node_set.loc[k,'Path']=path
             shortestpath_df.loc[:,n]=node_set.loc[:,'Path']
             shortestpath_df.loc[n,:]=node_set.loc[:,'Path']
-        return {'Distance': shortestdist_df, 'Path': shortestpath_df}
+        return {'Path_Length': shortestdist_df, 'Path': shortestpath_df}
 
-    def num_triangles(self):
+    def num_triangles(self, normalize=True):
         """
         Calculate sum of triangles edge weights around each node in network
         :return: n dimensional pd.Series
         """
-        triangles=pd.Series(np.zeros(len(self.nodes)), index=self.nodes)
-        all_combinations=combinations(self.nodes, 3)        # Create list of all possible triangles
-        abs_adj_mat = self.adj_mat.abs()
-        sum_dict={}
+        triangles = pd.Series(np.zeros(self.number_nodes), index=self.nodes)
+        all_combinations = combinations(self.nodes, 3)        # Create list of all possible triangles
+        adj_mat = self.adj_mat
+        if not np.all(adj_mat>=0): raise ValueError('Adjancency matrix elements must be positiv.')
+
+        if normalize:                                   # Normalizes the weights by the maximum weight.
+            max_weight = np.max(adj_mat.to_numpy())
+            adj_mat /= max_weight
+
+        m_dict={}
         for combi in all_combinations:
-            n1_n2=abs_adj_mat.loc[combi[0],combi[1]]        # Get path length between pairs in triangle combination
-            n1_n3=abs_adj_mat.loc[combi[0],combi[2]]
-            n2_n3=abs_adj_mat.loc[combi[1],combi[2]]
-            sum_dict[combi]=(n1_n2+n1_n3+n2_n3)**(1/3)       # Calculate the triangle sum of the combination and save it in dictionary
+            n1_n2 = adj_mat.loc[combi[0],combi[1]]        # Get path length between pairs in triangle combination
+            n1_n3 = adj_mat.loc[combi[0],combi[2]]
+            n2_n3 = adj_mat.loc[combi[1],combi[2]]
+            m_dict[combi] = (n1_n2*n1_n3*n2_n3)**(1/3)       # Calculate the triangle sum of the combination and save it in dictionary
         for node in self.nodes:
-            triangles[node]=0.5*np.sum([sum_dict[s] for s in sum_dict if node in s])    # Sum all of the triangles that contain the node
+            triangles.loc[node] = 0.5 * np.sum([m_dict[s] for s in m_dict if node in s])    # Sum all of the triangles that contain the node
         return triangles
 
-    def char_path(self, shortest_pathlength=None):
+    def char_path(self, shortestpath=None):
         """
         Calculate the characteristic path length of the network
         :return: Dictionary with average node distance np.array and characteristic path length np.float object
         """
-        if shortest_pathlength is not None:                                         # Check if shortest_pathlength is defined
-            if not isinstance(shortest_pathlength, (np.ndarray, pd.DataFrame)):
+        if shortestpath is not None:                                         # Check if shortest_pathlength is defined
+            if not isinstance(shortestpath, (np.ndarray, pd.DataFrame)):
                 raise ValueError('Shortest Pathlength must be numpy.ndarray or pd.DataFrame')
-            sum_shrtpath_df = np.sum(np.asarray(shortest_pathlength), axis=-1)                # Sums Shortest Path Dataframe along axis -1
+            sum_shrtpath_df = np.sum(np.asarray(shortestpath), axis=-1)                         # Sums Shortest Path Dataframe along axis -1
         else:
-            sum_shrtpath_df = np.sum(self.shortestpath()['Distance'], axis=-1)              # Sums Shortest Path Dataframe along axis -1
-        avg_shrtpath_node = sum_shrtpath_df / (len(self.nodes)-1)                       # Divide each element in sum array by n-1 regions
-        char_pathlength = np.sum(avg_shrtpath_node) / len(self.nodes)                     #
-        return {'node_avg_dist':avg_shrtpath_node, 'characteristic_path': char_pathlength}    # Calculate sum of the sum array and take the average
+            sum_shrtpath_df = np.sum(self.shortestpath()['Path_Length'], axis=-1)               # Sums Shortest Path Dataframe along axis -1
+        avg_shrtpath_node = sum_shrtpath_df / (self.number_nodes-1)                             # Divide each element in sum array by n-1 regions
+        char_pathlength = np.sum(avg_shrtpath_node) / self.number_nodes
+        return {'node_avg_dist':avg_shrtpath_node, 'characteristic_path': char_pathlength}      # Calculate sum of the sum array and take the average
 
-    def glob_efficiency(self):
+    def glob_efficiency(self, shortestpath=None):
         """
         Calculate the global efficiency of the network
         :return: np.float object
         """
-        inv_shrtpath=self.shortestpath()['Distance'].pow(-1)        # Takes the inverse of each element of the Dataframe
-        np.fill_diagonal(inv_shrtpath.to_numpy(), 0)                # Set Diagonal from inf -> 0
-        sum_invpath_df=inv_shrtpath.sum(axis=1)                     # Sums Shortest Path Dataframe along axis 1
-        avg_invpath=np.divide(sum_invpath_df, len(self.nodes)-1)    # Divide each element in sum array by n-1 regions
-        glob_efficiency= np.sum(avg_invpath) / len(self.nodes)      # Calculate sum of the sum array and take the average
+        if shortestpath is not None:
+            if not isinstance(shortestpath, (np.ndarray, pd.DataFrame)):     # Check if input is np.ndarray or pd.DataFrame
+                raise ValueError('Shortest Pathlength must be numpy.ndarray or pd.DataFrame')
+            shortestpath = np.asarray(shortestpath)
+            np.fill_diagonal(shortestpath, 1.)             # Sets diagonal to 1
+        else:
+            shortestpath = np.asarray(self.shortestpath()['Path_Length'])
+            np.fill_diagonal(shortestpath, 1.)      # Set diagonal to 1
+
+        inv_shrtpath=1/shortestpath                                                 # Computes shortest path and takes inverse
+        np.fill_diagonal(inv_shrtpath, 0)                                           # Set Diagonal from 1 -> 0
+        sum_invpath_df = np.sum(inv_shrtpath, axis=-1)                              # Sums Shortest Path Dataframe along axis 1
+        avg_invpath = sum_invpath_df / (self.number_nodes-1)                        # Divide each element in sum array by n-1 regions
+        glob_efficiency= np.sum(avg_invpath) / self.number_nodes                    # Calculate sum of the sum array and take the average
         return glob_efficiency
 
-    def clust_coeff(self):
+    def clust_coeff(self, normalize=False):
         """
         Calculate the cluster coefficient of the network
         :return: Dictionary of network cluster coefficient np.float object and ndim np.array of node cluster coefficients
         """
-        triangles=np.multiply(np.array(self.num_triangles()), 2)
-        degrees=np.array(self.degree())
-        excl_nodes=np.where(degrees < 2); triangles[excl_nodes]=0
-        degrees=np.multiply(degrees, degrees-1)
-        node_clust=np.divide(triangles,degrees)
-        net_clust=(1/len(self.nodes))*np.sum(node_clust)
-        return {'node_cluster':pd.Series(node_clust, index=self.nodes), 'net_cluster':net_clust}
+        if not isinstance(normalize, bool): raise ValueError('Normalize must be boolean (True/False).')
+
+        triangles = np.array(self.num_triangles(normalize=normalize)) * 2
+        degrees = np.array(self.degree())
+        excl_nodes = np.where(degrees < 2); triangles[excl_nodes] = 0     # Sets traingle sum to zero where degree is below 2
+        degrees *= (degrees-1)
+        node_clust = triangles / degrees
+        net_clust = (1/self.number_nodes) * np.sum(node_clust)
+
+        return {'node_cluster': pd.Series(node_clust, index=self.nodes), 'net_cluster': net_clust}
 
     def transitivity(self):
         """
@@ -146,7 +172,7 @@ class network:
         Calculate the betweenness centrality of each node in network
         :return: ndimensional pd.Series
         """
-        betw_centrality=pd.Series(np.zeros(len(self.nodes)), index=self.nodes)
+        betw_centrality=pd.Series(np.zeros(self.number_nodes), index=self.nodes)
         shortest_paths=self.shortestpath()['Path']
 
         for n in self.nodes:
@@ -158,7 +184,7 @@ class network:
                 for e in mat.loc[:c,c]:
                     if e.find(substr) != -1:
                         counter += 1
-            betw_centrality.loc[n]=counter/((len(self.nodes)-1)*(len(self.nodes)-2))
+            betw_centrality.loc[n]=counter/((self.number_nodes-1)*(self.number_nodes-2))
 
         return betw_centrality
 
