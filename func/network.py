@@ -97,7 +97,7 @@ class network:
             triangles.loc[node] = 0.5 * np.sum([m_dict[s] for s in m_dict if node in s])    # Sum all of the triangles that contain the node
         return triangles
 
-    def char_path(self, shortestpath=None):
+    def char_path(self, node_by_node=False, shortestpath=None):
         """
         Calculate the characteristic path length of the network
         :return: Dictionary with average node distance np.array and characteristic path length np.float object
@@ -107,10 +107,14 @@ class network:
                 raise ValueError('Shortest Pathlength must be numpy.ndarray or pd.DataFrame')
             sum_shrtpath_df = np.sum(np.asarray(shortestpath), axis=-1)                         # Sums Shortest Path Dataframe along axis -1
         else:
-            sum_shrtpath_df = np.sum(self.shortestpath()['Path_Length'], axis=-1)               # Sums Shortest Path Dataframe along axis -1
+            sum_shrtpath_df = np.sum(np.asarray(self.shortestpath()['Path_Length']), axis=-1)   # Sums Shortest Path Dataframe along axis -1
         avg_shrtpath_node = sum_shrtpath_df / (self.number_nodes-1)                             # Divide each element in sum array by n-1 regions
         char_pathlength = np.sum(avg_shrtpath_node) / self.number_nodes
-        return {'node_avg_dist':avg_shrtpath_node, 'characteristic_path': char_pathlength}      # Calculate sum of the sum array and take the average
+
+        if node_by_node:
+            return avg_shrtpath_node                                                            # Return average shortest path node by node
+        else:
+            return char_pathlength
 
     def glob_efficiency(self, shortestpath=None):
         """
@@ -133,7 +137,7 @@ class network:
         glob_efficiency= np.sum(avg_invpath) / self.number_nodes                    # Calculate sum of the sum array and take the average
         return glob_efficiency
 
-    def clust_coeff(self, normalize=False):
+    def clust_coeff(self, node_by_node=False, normalize=False):
         """
         Calculate the cluster coefficient of the network
         :return: Dictionary of network cluster coefficient np.float object and ndim np.array of node cluster coefficients
@@ -142,30 +146,47 @@ class network:
 
         triangles = np.array(self.num_triangles(normalize=normalize)) * 2
         degrees = np.array(self.degree())
-        excl_nodes = np.where(degrees < 2); triangles[excl_nodes] = 0     # Sets traingle sum to zero where degree is below 2
+        excl_nodes = np.where(degrees < 2); triangles[excl_nodes] = 0; degrees[excl_nodes] = 2     # Sets traingle sum to zero where degree is below 2
         degrees *= (degrees-1)
         node_clust = triangles / degrees
         net_clust = (1/self.number_nodes) * np.sum(node_clust)
 
-        return {'node_cluster': pd.Series(node_clust, index=self.nodes), 'net_cluster': net_clust}
+        if node_by_node:
+            return pd.Series(node_clust, index=self.nodes)
+        else:
+            return net_clust
 
     def transitivity(self):
         """
         Calculate the transitivity of the network
         :return: np.float
         """
-        triangles=np.sum(np.multiply(np.asarray(self.num_triangles()),2))     # Multiply sum of triangles with 2 and sum the array
-        degrees=np.array(self.degree())
-        degrees=np.sum(np.multiply(degrees, degrees-1))
-        return np.divide(triangles, degrees)
 
-    def closeness_centrality(self):
+        sum_triangles = np.sum(np.asarray(self.num_triangles())*2)     # Multiply sum of triangles with 2 and sum the array
+        degrees = np.asarray(self.degree())
+        degrees *= (degrees-1)
+        sum_degrees = np.sum(degrees)
+        transitivity = sum_triangles / sum_degrees
+
+        return transitivity
+
+    def closeness_centrality(self, char_path=None):
         """
-        Calculate the closeness centrality of each node in network
+        Calculate the closeness centrality of each node in network.
+        Optionally takes in the shortest average pathlength of each node, which saves computation time.
+        :param: n dimensional array or pd.Series that contains the average shortest path for each node
         :return: ndimensional pd.Series
         """
-        node_avg_distance=self.char_path()['node_avg_dist']
-        return pd.Series(np.power(node_avg_distance, -1), index=self.nodes)
+        if char_path is not None:               # If char_path is defined takes this as input
+            if not isinstance(char_path, (pd.Series, np.ndarray)): raise ValueError('Characteristic Path must be pd.Series or np.ndarray')
+            node_avg_distance = np.asarray(char_path)
+        else:
+            node_avg_distance = np.asarray(self.char_path(node_by_node=True))  # Compute average shortest path node by node
+        if not np.all(node_avg_distance): raise Exception('Node by node shortest average path must not contain zeros.')
+
+        close_cent = 1 / node_avg_distance                      # Inverts the average shortest path
+        close_cent = pd.Series(close_cent, index=self.nodes)    # Converts to pd.Series
+        return close_cent
 
     def betweenness_centrality(self):
         """
@@ -206,7 +227,7 @@ class network:
             elif not tc.any(): raise ValueError("Timecourse not specified")
 
             random_net = randomnet.hqs_rand(tc)
-            random_clust_coeff = random_net.clust_coeff()['net_cluster']
+            random_clust_coeff = random_net.clust_coeff()
             random_char_path = random_net.char_path()['characteristic_path']
 
         else:
@@ -216,7 +237,7 @@ class network:
             for i in range(nrandnet):
                 random_net=randomnet.rewired_rand(self.adj_mat, niter, seed)
                 print(f'{i+1} random network generated.')
-                random_clust_coeff.append(random_net.clust_coeff()['net_cluster'])
+                random_clust_coeff.append(random_net.clust_coeff())
                 random_char_path.append(random_net.char_path()['characteristic_path'])
                 print(f'Random Char Path: {random_char_path}')
                 print(f'Random clust coeff: {random_clust_coeff}')
@@ -224,7 +245,7 @@ class network:
             random_clust_coeff=np.mean(random_clust_coeff)
             random_char_path=np.mean(random_char_path)
 
-        sig_num=(self.clust_coeff()['net_cluster']/random_clust_coeff)
+        sig_num=(self.clust_coeff()/random_clust_coeff)
         sig_den=(self.char_path()['characteristic_path']/random_char_path)
         sigma=sig_num/sig_den
 
@@ -233,5 +254,5 @@ class network:
 
     def modularity(self):
         #TODO find algorithm to find modules in network
-        return
+        pass
 
