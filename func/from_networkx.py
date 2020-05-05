@@ -25,10 +25,12 @@ def shortest_path_length(adjacency):
     return shortest_path_matrix
 
 def weighted_traingles_iter(adjacency, normalize=True):
+    # TODO change division by degree.
     assert isinstance(adjacency, (pd.DataFrame, np.ndarray)), "Adjacency matrix must be pd.Dataframe or np.ndarray."    # Checks format so function can be used alone.
     adjacency = np.asarray(adjacency)
 
     G = nx.from_numpy_matrix(adjacency)
+
     if normalize:   # Normalizes if set to True
         max_weight = max(d.get('weight', 1) for u, v, d in G.edges(data=True))
     else:
@@ -51,8 +53,7 @@ def weighted_traingles_iter(adjacency, normalize=True):
             wij = wt(i, j)
             weighted_triangles += sum((wij * wt(j, k) * wt(k, i)) ** (1 / 3) for k in inbrs & jnbrs)
 
-        degree = G.degree(weight='weight')[i] / max_weight
-        yield (i, degree, (1/2) * weighted_triangles)
+        yield (i, len(nbrs), (1/2) * weighted_triangles)
 
 def clustering(adjacency, normalize=True):
     assert isinstance(adjacency, (pd.DataFrame, np.ndarray)), "Adjacency matrix must be pd.Dataframe or np.ndarray."
@@ -63,8 +64,8 @@ def clustering(adjacency, normalize=True):
 
     adjacency = np.array(adjacency)                 # Copies to np.array
     triangl_iter = weighted_traingles_iter(adjacency, normalize=normalize)
-    clusterc = {v: 0 if d < 2 else (2*t) / (d * (d - 1)) for v, d, t in triangl_iter} # Output dictionary with clustercoefficients for each node
-    clusterc = pd.Series(clusterc, index = idx)                                                  # Converting dictionary to pd.Series
+    clusterc = {v: 0 if d < 2 else (2*t) / (d * (d - 1)) for v, d, t in triangl_iter}               # Output dictionary with clustercoefficients for each node
+    clusterc = pd.Series(clusterc, index = idx)                                                     # Converting dictionary to pd.Series
 
     return clusterc
 
@@ -90,3 +91,14 @@ def rewire(adjacency, niter=10, seed=None):
 
     return random_adj
 
+def assortativity(adjacency):
+    """
+    Computes assortativity coefficient of adjacency matrix using networkx immplementation.
+    :param adjacency: array like adjacency matrix of network
+    :return: float assortativity coeff
+    """
+    adj = np.array(adjacency)
+    G = nx.from_numpy_matrix(adj)
+    assortativity = nx.degree_pearson_correlation_coefficient(G, weight='weight')
+
+    return assortativity

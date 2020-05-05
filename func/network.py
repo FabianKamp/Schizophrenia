@@ -12,14 +12,16 @@ class NetworkError(Exception):
 class network:
     """Defines input as network
     :parameter pd.DataFrame that contains the adjacency matrix of the network, np.ndarray timecourse matrix
-    TODO use absolute values or set negativ values to zero
+    TODO we can not use the absolute values, correct for where they are needed
+    TODO correct clust coeff
     """
     def __init__(self, Adjacency_Matrix, node_names=None,tc=[]):
         if not isinstance(Adjacency_Matrix, (pd.DataFrame, np.ndarray)):
             raise ValueError('Input must be numpy.ndarray or panda.DataFrame.')
         if len(Adjacency_Matrix.shape) != 2 or Adjacency_Matrix.shape[0] != Adjacency_Matrix.shape[1]:  # Check if the Adjancency Matrix has the right shape
             raise Exception('Adjacency matrix must be a 2 dimensional square matrix.')
-        if not np.all(Adjacency_Matrix>=0): raise Exception('Elements of adjacency matrix must be positiv.')           # Check if the values of ajdancency matrix are positiv
+        if not np.all(Adjacency_Matrix>=0):
+            print('Not all elements of adjacency matrix are positiv.')                                  # Check if the values of ajdancency matrix are positiv
 
         if isinstance(Adjacency_Matrix, np.ndarray) and node_names is not None:
             if not isinstance(node_names, list): raise ValueError('node_names must be list.')
@@ -64,16 +66,20 @@ class network:
                 path boolean value, specify if the paths are returned
         :return Dictionary of two nxn dimensional pd.DataFrames with shortest path / shortest distance between all pairs of nodes in the network
         """
-
         adj_mat = self.adj_mat.copy()
+
+        if not np.all(adj_mat>=0):          # Check for negative values
+            print('Take absolute value to compute shortest path length.')
+            adj_mat = np.abs(adj_mat)       # Take absolute value of adjacency matrix
+
         if paths and nx: raise NetworkError('Paths has not yet been implemented using networkX. Swith nx or paths to False')
 
-        if paths and self.shortest_path is not None:        # Returns shortest paths if already existing
+        if paths and self.shortest_path is not None:                    # Returns shortest paths if already existing
             return self.shortest_path
         elif not paths and self.shortest_path_length is not None:       # Returns shortest path lengths if already existing
             return self.shortest_path_length
 
-        if nx:          # NetworkX implementation of the shortest path length
+        if nx:                                                          # NetworkX implementation of the shortest path length
             if self.shortest_path_length is not None:
                 print('Shortest path length has already been computed.')
                 return self.shortest_path_length
@@ -193,15 +199,18 @@ class network:
         :return: Network cluster coefficient np.float object or ndim np.array of node by node cluster coefficients
         """
         if not isinstance(normalize, bool): raise ValueError('Normalize must be boolean (True/False).')
+        adj = np.array(self.adj_mat)
+        np.fill_diagonal(adj, 0)                        # Sets the diagonal to zero
+        if not np.all(adj>=0):
+            print('Take absolute value of the adjacency matrix to compute cluster coefficient.')
+            adj = np.abs(adj)
 
         if nx:
-            node_clust = fnx.clustering(self.adj_mat, normalize=normalize)
+            node_clust = fnx.clustering(adj, normalize=normalize)
 
         else:
-            degrees = np.array(self.degree())
-            if normalize:
-                max_weight = np.max(self.adj_mat.to_numpy())
-                degrees /= max_weight
+            num_zeros = np.sum(np.isclose(adj, 0), axis=-1)    # Calculates the number of zeros in each row
+            degrees = np.full(self.number_nodes, self.number_nodes) - num_zeros
             triangles = np.array(self.num_triangles(normalize=normalize))
 
             excl_nodes = np.where(degrees < 2); triangles[excl_nodes] = 0; degrees[excl_nodes] = 2     # Sets traingle sum to zero where degree is below 2
@@ -265,21 +274,20 @@ class network:
 
         return betw_centrality
 
-    def small_worldness(self, nrandnet=10, niter=10, seed=None, nx=True, method='rewired_net', tc=[]):
+    def small_worldness(self, nrandnet=1, niter=10, seed=None, nx=True, method='weighted_random', tc=[]):
         """
         Computes small worldness (sigma) of network
         :param: seed: float or integer which sets the seed for random network generation
                 niter: int of number of iterations that should be done during network generation
-                method: string, defines method for random reference generation, must be either rewired_net, rewired_nx or hqs
+                method: string, defines method for random reference generation, must be either rewired_net, weighted_random or hqs
                 tc: timecourse as np.ndarray, must  be set for hqs algorithm
         :return: np.float, small-worldness sigma
         """
-
-        if method not in ['rewired_net', 'hqs']:
+        import func.random_reference as randomnet
+        if method not in ['rewired_net', 'hqs', 'weighted_random']:
             raise Exception('Method must be rewired_net, rewired_nx or hqs')
 
         if method == 'hqs':
-            import func.random_reference as randomnet
 
             tc = np.array(tc)
             if not tc.any() and self.time_course.any():
@@ -287,28 +295,35 @@ class network:
             elif not tc.any(): raise ValueError("Timecourse not specified")
 
             random_net = randomnet.hqs(tc)
-            random_clust_coeff = random_net.clust_coeff()
-            random_char_path = random_net.char_path()['characteristic_path']
+            random_clust_coeff = random_net.clust_coeff(node_by_node=False, normalize=False, nx=nx)
+            random_char_path = random_net.char_path(node_by_node=False, nx=nx)
 
         else:
-            import func.random_reference as randomnet                       # Imoort randomnet
+
             if nrandnet < 1: raise ValueError("Minimum one iteration.")
             random_clust_coeff = []
             random_char_path = []
             for i in range(nrandnet):
-                random_adj = randomnet.rewired_net(self.adj_mat, niter, seed)
+
+                if method == 'rewired_net':
+                    random_adj = randomnet.rewired_net(self.adj_mat, niter, seed)
+                elif method == 'weighted_random':
+                    random_adj = randomnet.weighted_random(self.adj_mat, niter=niter)
+
                 random_net = network(random_adj)                                    # Convert random adj to network
                 print(f'{i+1} random network generated.')
-                random_clust_coeff.append(random_net.clust_coeff(node_by_node=False, normalize=False, nx=nx))                 # Compute clustering coeff of random network
-                random_char_path.append(random_net.char_path(node_by_node=False, nx=nx))                     # Compute characteristic pathlength of random network
+                random_clust_coeff.append(random_net.clust_coeff(node_by_node=False, normalize=False, nx=nx))           # Compute clustering coeff of random network
+                random_char_path.append(random_net.char_path(node_by_node=False, nx=nx))                                # Compute characteristic pathlength of random network
                 print(f'Random Char Path: {random_char_path}')
-                print(f'Random clust coeff: {random_clust_coeff}')
+                print(f'Random Clust Coeff: {random_clust_coeff}')
 
             random_clust_coeff = np.mean(random_clust_coeff)                        # Take average of random cluster coefficients
             random_char_path = np.mean(random_char_path)                            # Take average of random characteristic paths
 
-        sig_num = (self.clust_coeff()/random_clust_coeff)                           # Compute numerator
-        sig_den = (self.char_path()/random_char_path)                               # Compute denumerator
+        sig_num = (self.clust_coeff(node_by_node=False, normalize=True, nx=nx)/random_clust_coeff)          # Compute numerator
+        print(f'Cluster Coeff: {self.clust_coeff(node_by_node=False, normalize=True, nx=nx)}')
+        sig_den = (self.char_path(node_by_node=False, nx=nx)/random_char_path)                               # Compute denumerator
+        print(f'Char path: {self.char_path(node_by_node=False, nx=nx)}')
         sigma = sig_num/sig_den                                                     # Compute sigma
 
         return sigma
@@ -317,4 +332,58 @@ class network:
     def modularity(self):
         #TODO find algorithm to find modules in network
         pass
+
+    def avg_neigh_degree(self):
+        """
+        Compute the average neighbour degree following the definition of Rubinov and Sporns 2011
+        :return: pd.Series, average neighbour degree of each node
+        """
+
+        adj = np.array(self.adj_mat)
+        np.fill_diagonal(adj, 0)
+        degrees = np.sum(adj, axis=-1)  # Weighted Degrees
+
+        avg_neigh_degree = np.zeros(self.number_nodes)
+        for n in range(self.number_nodes):
+            avg_neigh_degree[n] = np.sum(adj[n, :] * degrees) / degrees[n]
+
+        avg_neigh_degree = pd.Series(avg_neigh_degree, index=self.nodes)
+
+        return avg_neigh_degree
+
+    def assortativity(self):
+        """
+        Computes the assortativity coefficient following the definition in Leung and Chau 2007,
+        "Weighted assortative and disassortative networks model".
+
+        :return: float, Assortativity coefficient of the network
+        """
+
+        adj = np.array(self.adj_mat)    # Copy adjacency matrix
+        np.fill_diagonal(adj, 0)        # Fills the diagonal with zeros
+        assert np.any(adj), "Adjacency matrix must contain non zero values"
+
+        total_weights = 1/np.sum(adj)   # inverse of total weights
+        degrees = np.sum(adj, axis=-1)  # Calculate the degree of all edges
+
+        add_mat = np.zeros(adj.shape)   # Initiate matrices for later calculations
+        mult_mat = np.zeros(adj.shape)
+        square_mat = np.zeros(adj.shape)
+
+        for i in range(adj.shape[0]):
+            for j in range(adj.shape[1]):
+                mult_mat[i,j] = degrees[i] * degrees[j]
+                add_mat[i,j] = degrees[i] + degrees[j]
+                square_mat[i,j] = degrees[i]**2 + degrees[j]**2
+
+        num = total_weights * np.sum(adj * mult_mat) - (total_weights/2 * np.sum(adj * add_mat))**2
+        denom = total_weights/2 * np.sum(adj * (square_mat)) - (total_weights/2 * np.sum(adj * add_mat))**2
+        assortativity = num / denom
+
+        return assortativity
+
+
+
+
+
 

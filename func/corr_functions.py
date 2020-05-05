@@ -6,11 +6,12 @@ def covariance_mat(M):
     """ Returns the covariance matrix of rows of input matrix
     :parameter: np.ndarray or pd.DataFrame, shape n x p
     :return: n x p np.ndarray covariance matrix
+    TODO check covariance matrix
     """
     if not isinstance(M, np.ndarray) and not isinstance(M, pd.DataFrame):           # Checks input type
         raise Exception('Input Matrix has to be np.array or pd.DataFrame')
     M=np.array(M)                               # Converts to np.array
-    M=M-M.mean(axis=1).reshape(-1,1)            # Subtracts row means from each row
+    M=M-np.mean(M, axis=1, keepdims=True)           # Subtracts row means from each row
     C=np.matmul(M, M.T)/M.shape[1]             # Matrix multiplication yields the covariance matrix
     return C
 
