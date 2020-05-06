@@ -55,14 +55,17 @@ def weighted_traingles_iter(adjacency, normalize=True):
 
         yield (i, len(nbrs), (1/2) * weighted_triangles)
 
+
 def clustering(adjacency, normalize=True):
     assert isinstance(adjacency, (pd.DataFrame, np.ndarray)), "Adjacency matrix must be pd.Dataframe or np.ndarray."
+
     if isinstance(adjacency, pd.DataFrame):
         idx = list(adjacency.index)                 # Saves indices of Dataframe
     else:
         idx = list(range(adjacency.shape[0]))       # Sets indices otherwise
 
     adjacency = np.array(adjacency)                 # Copies to np.array
+
     triangl_iter = weighted_traingles_iter(adjacency, normalize=normalize)
     clusterc = {v: 0 if d < 2 else (2*t) / (d * (d - 1)) for v, d, t in triangl_iter}               # Output dictionary with clustercoefficients for each node
     clusterc = pd.Series(clusterc, index = idx)                                                     # Converting dictionary to pd.Series

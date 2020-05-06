@@ -130,15 +130,11 @@ def weighted_random(adjacency, niter):
     """
     assert isinstance(adjacency, (pd.DataFrame, np.ndarray)), "Input must be numpy.ndarray or panda.DataFrame."
 
-    if isinstance(adjacency, pd.DataFrame):
-        nodes = list(adjacency.index)
-    else:
-        nodes = np.arange(adjacency.shape[0])
-
     adj = np.array(adjacency, copy=True)
     num_nodes = adj.shape[0]
 
     for iter in range(niter):
+
         # Sign switching
         positive_edges = [(i,j) for i in range(num_nodes) for j in range(num_nodes) if adj[i,j] > 0 and i != j]
         negative_edges = [(i,j) for i in range(num_nodes) for j in range(num_nodes) if adj[i,j] < 0 and i != j]
@@ -150,47 +146,40 @@ def weighted_random(adjacency, niter):
             more_edges = negative_edges.copy()
             less_edges = positive_edges.copy()
 
-        s = 0
-        while s < 10 and len(less_edges) > 0:
-                #node_list = [item for t in less_edges for item in t]
-                #freq_dict = {z: node_list.count(z) for z in node_list}
-                #if sorted(freq_dict.values())[-1] - sorted(freq_dict.values())[-2] > 1:
-                #    max_freq = max(freq_dict, key=lambda key: freq_dict[key])
-                #    choice_list = [i for i in less_edges if max_freq in i]
-                #else:
+        n_edges = len(less_edges)/2
+        for i in range(int(n_edges/2)):
 
             first_edge = random.choice(less_edges)
             a, b = first_edge
 
-            less_edges.remove((a, b))
-            less_edges.remove((b, a))
-
-            second_list = [(c,d) for c,d in less_edges if (a,c) in more_edges and (b,d) in more_edges]
+            second_list = [(c,d) for c,d in less_edges if (a,c) in more_edges and (b,d) in more_edges and c not in (a,b)
+                           and d not in (a,b)]
 
             if len(second_list) == 0:
-                s += 1
                 continue
-            s = 0
 
             second_edge = random.choice(second_list)
             c, d = second_edge
-
-            less_edges.remove((c,d))
-            less_edges.remove((d,c))
 
             adj[a,[b,c]] *= -1
             adj[b,[a,d]] *= -1
             adj[c,[a,d]] *= -1
             adj[d,[b,c]] *= -1
 
+            less_edges.remove((a, b))
+            less_edges.remove((b, a))
+            less_edges.remove((c, d))
+            less_edges.remove((d, c))
+
             more_edges.remove((a,c))
             more_edges.remove((c,a))
             more_edges.remove((b,d))
             more_edges.remove((d,b))
 
-        n = len(less_edges)
-        if n != 0:
-            print('Could not invert the sign of the following elements: ', less_edges)
+            n_edges = len(less_edges)/2
+
+        if n_edges != 0:
+            print('Could not invert the sign of ', len(less_edges), ' elements.')
 
         # Weight randomization
         # Positive connections / negative connections
@@ -206,38 +195,29 @@ def weighted_random(adjacency, niter):
         for signed_adj in adj_list:
 
             strengths = np.sum(signed_adj, axis=-1) # Computes the strength of each node
-            list_edges = [(i,j) for i in range(num_nodes) for j in range(num_nodes) if signed_adj[i,j] != 0 and i != j]
 
-            set_edges = [(i, j) for i in range(num_nodes) for j in range(i + 1, num_nodes) if
+            list_edges = [(i, j) for i in range(num_nodes) for j in range(i + 1, num_nodes) if
                          signed_adj[i, j] != 0 and i != j]
-            num_edges = len(set_edges)    # Counts number of edges that are not zero
+            num_edges = len(list_edges)    # Counts number of edges that are not zero
 
             list_weights = [signed_adj[i,j] for i in range(num_nodes) for j in range(i+1, num_nodes) if signed_adj[i,j] != 0 and i != j]
             sorted_weights = sorted(list_weights)[::-1] # Sort from highest to lowest value
 
             random_adj = np.zeros(signed_adj.shape)
             for edge in range(num_edges):
-                r_strengths = np.sum(random_adj, axis=-1)
-                e = {(i,j): (strengths[i] - r_strengths[i])*(strengths[j] - r_strengths[j]) for i,j in set_edges}
 
-                sorted_e = [i[0] for i in sorted(e.items(), key=lambda item: item[1])]
-                selected_edge = random.choice(list_edges)
+                r_strengths = np.sum(random_adj, axis=-1)
+                e = {(i,j): (strengths[i] - r_strengths[i])*(strengths[j] - r_strengths[j]) for i,j in list_edges}
+                sorted_e = [i[0] for i in sorted(e.items(), key=lambda item: item[1])[::-1]] # Sort from highest to lowest
+
+                selected_edge = random.choice(list_edges) #list_edges
                 i,j = selected_edge
-                if j > i:
-                    rank = sorted_e.index((i,j))
-                else:
-                    rank = sorted_e.index((j,i))
+                rank = sorted_e.index((i, j))
 
                 random_adj[i,j] = sorted_weights[rank]
                 random_adj[j,i] = sorted_weights[rank]
+
                 list_edges.remove((i,j))
-                list_edges.remove((j,i))
-
-                if j > i:
-                    set_edges.remove((i,j))
-                else:
-                    set_edges.remove((j,i))
-
                 del sorted_weights[rank]
 
             random_adj_list.append(random_adj)

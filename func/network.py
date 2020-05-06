@@ -21,7 +21,7 @@ class network:
         if len(Adjacency_Matrix.shape) != 2 or Adjacency_Matrix.shape[0] != Adjacency_Matrix.shape[1]:  # Check if the Adjancency Matrix has the right shape
             raise Exception('Adjacency matrix must be a 2 dimensional square matrix.')
         if not np.all(Adjacency_Matrix>=0):
-            print('Not all elements of adjacency matrix are positiv.')                                  # Check if the values of ajdancency matrix are positiv
+            print('Attention: Not all elements of adjacency matrix are positiv.')                                  # Check if the values of ajdancency matrix are positiv
 
         if isinstance(Adjacency_Matrix, np.ndarray) and node_names is not None:
             if not isinstance(node_names, list): raise ValueError('node_names must be list.')
@@ -79,10 +79,13 @@ class network:
         elif not paths and self.shortest_path_length is not None:       # Returns shortest path lengths if already existing
             return self.shortest_path_length
 
+        adj_mat[adj_mat!=0] = 1/adj_mat[adj_mat != 0]                   # Inverting all nonzero values
+
         if nx:                                                          # NetworkX implementation of the shortest path length
             if self.shortest_path_length is not None:
                 print('Shortest path length has already been computed.')
                 return self.shortest_path_length
+
             shortestpath_matrix = fnx.shortest_path_length(adj_mat)
             shortestdist_df = pd.DataFrame(np.asarray(shortestpath_matrix), columns=self.nodes, index=self.nodes)
             self.shortest_path_length = shortestdist_df
@@ -97,6 +100,7 @@ class network:
                                        'Previous': ['']*(self.number_nodes), 'Path': ['']*(self.number_nodes)}, index=self.nodes)
                 node_set.loc[self.nodes[n], 'Distance'] = 0
                 unvisited_nodes=self.nodes.copy()
+
                 while unvisited_nodes != []:
                     current=node_set.loc[unvisited_nodes,'Distance'].idxmin()    # Select node with minimal Distance of the unvisited nodes
                     unvisited_nodes.remove(current)
@@ -105,7 +109,7 @@ class network:
                         if node_set.loc[k,'Distance'] > dist:
                             node_set.loc[k,'Distance'] = dist
                             node_set.loc[k,'Previous'] = current
-                shortestdist_df.loc[:,n]=node_set.loc[:,'Distance']
+                shortestdist_df.loc[:, n]=node_set.loc[:,'Distance']
                 shortestdist_df.loc[n, :]=node_set.loc[:,'Distance']
 
                 if paths:                     # Create Dataframe with string values for the shortest path between each pair of nodes
@@ -274,8 +278,9 @@ class network:
 
         return betw_centrality
 
-    def small_worldness(self, nrandnet=1, niter=10, seed=None, nx=True, method='weighted_random', tc=[]):
+    def small_worldness(self, nrandnet=1, niter=10, seed=None, nx=True, method='weighted_random', tc=[], normalize=False):
         """
+        #TODO rewrite this method, because its too long
         Computes small worldness (sigma) of network
         :param: seed: float or integer which sets the seed for random network generation
                 niter: int of number of iterations that should be done during network generation
@@ -295,7 +300,7 @@ class network:
             elif not tc.any(): raise ValueError("Timecourse not specified")
 
             random_net = randomnet.hqs(tc)
-            random_clust_coeff = random_net.clust_coeff(node_by_node=False, normalize=False, nx=nx)
+            random_clust_coeff = random_net.clust_coeff(node_by_node=False, normalize=normalize, nx=nx)
             random_char_path = random_net.char_path(node_by_node=False, nx=nx)
 
         else:
@@ -312,18 +317,16 @@ class network:
 
                 random_net = network(random_adj)                                    # Convert random adj to network
                 print(f'{i+1} random network generated.')
-                random_clust_coeff.append(random_net.clust_coeff(node_by_node=False, normalize=False, nx=nx))           # Compute clustering coeff of random network
+
+                random_clust_coeff.append(random_net.clust_coeff(node_by_node=False, normalize=normalize, nx=nx))           # Compute clustering coeff of random network
                 random_char_path.append(random_net.char_path(node_by_node=False, nx=nx))                                # Compute characteristic pathlength of random network
-                print(f'Random Char Path: {random_char_path}')
-                print(f'Random Clust Coeff: {random_clust_coeff}')
+
 
             random_clust_coeff = np.mean(random_clust_coeff)                        # Take average of random cluster coefficients
             random_char_path = np.mean(random_char_path)                            # Take average of random characteristic paths
 
         sig_num = (self.clust_coeff(node_by_node=False, normalize=True, nx=nx)/random_clust_coeff)          # Compute numerator
-        print(f'Cluster Coeff: {self.clust_coeff(node_by_node=False, normalize=True, nx=nx)}')
         sig_den = (self.char_path(node_by_node=False, nx=nx)/random_char_path)                               # Compute denumerator
-        print(f'Char path: {self.char_path(node_by_node=False, nx=nx)}')
         sigma = sig_num/sig_den                                                     # Compute sigma
 
         return sigma
