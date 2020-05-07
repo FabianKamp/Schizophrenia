@@ -129,6 +129,7 @@ def weighted_random(adjacency, niter):
     :return: randomized adjacency matrix as pd.DataFrame
     """
     assert isinstance(adjacency, (pd.DataFrame, np.ndarray)), "Input must be numpy.ndarray or panda.DataFrame."
+    import random
 
     adj = np.array(adjacency, copy=True)
     num_nodes = adj.shape[0]
